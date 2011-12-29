@@ -8,15 +8,18 @@ public class GeometryBuffer {
 	public List<Vector3> vertices;
 	public List<Vector2> uvs;
 	public List<Vector3> normals;
+	public int unnamedGroupIndex = 1; // naming index for unnamed group. like "Unnamed-1"
 	
 	private ObjectData current;
 	private class ObjectData {
 		public string name;
 		public List<GroupData> groups;
 		public List<FaceIndices> allFaces;
+		public int normalCount;
 		public ObjectData() {
 			groups = new List<GroupData>();
 			allFaces = new List<FaceIndices>();
+			normalCount = 0;
 		}
 	}
 	
@@ -67,6 +70,10 @@ public class GeometryBuffer {
 	public void PushGroup(string name) {
 		if(curgr.isEmpty) current.groups.Remove(curgr);
 		GroupData g = new GroupData();
+		if (name == null) {
+			name = "Unnamed-"+unnamedGroupIndex;
+			unnamedGroupIndex++;
+		}
 		g.name = name;
 		current.groups.Add(g);
 		curgr = g;
@@ -94,6 +101,9 @@ public class GeometryBuffer {
 	public void PushFace(FaceIndices f) {
 		curgr.faces.Add(f);
 		current.allFaces.Add(f);
+		if (f.vn >= 0) {
+			current.normalCount++;
+		}
 	}
 	
 	public void Trace() {
@@ -115,13 +125,17 @@ public class GeometryBuffer {
 	public bool hasUVs { get { return uvs.Count > 0; } }
 	public bool hasNormals { get { return normals.Count > 0; } }
 	
+	public static int MAX_VERTICES_LIMIT_FOR_A_MESH = 64999;
+	
 	public void PopulateMeshes(GameObject[] gs, Dictionary<string, Material> mats) {
 		if(gs.Length != numObjects) return; // Should not happen unless obj file is corrupt...
-		
+		Debug.Log("PopulateMeshes GameObjects count:"+gs.Length);
 		for(int i = 0; i < gs.Length; i++) {
 			ObjectData od = objects[i];
+			bool objectHasNormals = (hasNormals && od.normalCount > 0);
 			
 			if(od.name != "default") gs[i].name = od.name;
+			Debug.Log("PopulateMeshes object name:"+od.name);
 			
 			Vector3[] tvertices = new Vector3[od.allFaces.Count];
 			Vector2[] tuvs = new Vector2[od.allFaces.Count];
@@ -129,21 +143,32 @@ public class GeometryBuffer {
 		
 			int k = 0;
 			foreach(FaceIndices fi in od.allFaces) {
+				if (k >= MAX_VERTICES_LIMIT_FOR_A_MESH) {
+					Debug.LogWarning("maximum vertex number for a mesh exceeded for object:"  + gs[i].name);
+					break;
+				}
 				tvertices[k] = vertices[fi.vi];
 				if(hasUVs) tuvs[k] = uvs[fi.vu];
-				if(hasNormals) tnormals[k] = normals[fi.vn];
+				if(hasNormals && fi.vn >= 0) tnormals[k] = normals[fi.vn];
 				k++;
 			}
 		
 			Mesh m = (gs[i].GetComponent(typeof(MeshFilter)) as MeshFilter).mesh;
 			m.vertices = tvertices;
 			if(hasUVs) m.uv = tuvs;
-			if(hasNormals) m.normals = tnormals;
+			if(objectHasNormals) m.normals = tnormals;
 			
 			if(od.groups.Count == 1) {
+				Debug.Log("PopulateMeshes only one group: "+od.groups[0].name);
 				GroupData gd = od.groups[0];
-				gs[i].renderer.material = mats[gd.materialName];
-				
+				string matName = (gd.materialName != null) ? gd.materialName : "default"; // MAYBE: "default" may not enough.
+				if (mats.ContainsKey(matName)) {
+					gs[i].renderer.material = mats[matName];
+					Debug.Log("PopulateMeshes mat:"+matName+" set.");
+				}
+				else {
+					Debug.LogWarning("PopulateMeshes mat:"+matName+" not found.");
+				}
 				int[] triangles = new int[gd.faces.Count];
 				for(int j = 0; j < triangles.Length; j++) triangles[j] = j;
 				
@@ -151,12 +176,21 @@ public class GeometryBuffer {
 				
 			} else {
 				int gl = od.groups.Count;
-				Material[] sml = new Material[gl];
+				Material[] materials = new Material[gl];
 				m.subMeshCount = gl;
 				int c = 0;
 				
+				Debug.Log("PopulateMeshes group count:"+gl);
 				for(int j = 0; j < gl; j++) {
-					sml[j] = mats[od.groups[j].materialName]; 
+					string matName = (od.groups[j].materialName != null) ? od.groups[j].materialName : "default"; // MAYBE: "default" may not enough.
+					if (mats.ContainsKey(matName)) {
+						materials[j] = mats[matName];
+						Debug.Log("PopulateMeshes mat:"+matName+" set.");
+					}
+					else {
+						Debug.LogWarning("PopulateMeshes mat:"+matName+" not found.");
+					}
+					
 					int[] triangles = new int[od.groups[j].faces.Count];
 					int l = od.groups[j].faces.Count + c;
 					int s = 0;
@@ -164,7 +198,10 @@ public class GeometryBuffer {
 					m.SetTriangles(triangles, j);
 				}
 				
-				gs[i].renderer.materials = sml;
+				gs[i].renderer.materials = materials;
+			}
+			if (!objectHasNormals) {
+				m.RecalculateNormals();
 			}
 		}
 	}

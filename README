@@ -9,3 +9,8 @@ Many thanks to the original author, Bartek Drozdz for publishing the code under 
 
 License: MIT
 
+Notes:
+ - please put all texture files on the same directory of . obj file.
+ - please use use this form of URL for local files. ex) file:///Users/someone/somepath/model.obj
+ - Bump map is not correctly working. TODO: convert hight map to normal map, make tangent data.
+

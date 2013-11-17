@@ -117,7 +117,6 @@ public class GeometryBuffer {
 				Debug.Log(od.name + "/" + gd.name + " has " + gd.faces.Count + " faces(s)");
 			}
 		}
-		
 	}
 	
 	public int numObjects { get { return objects.Count; } }	

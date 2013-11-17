@@ -1,3 +1,7 @@
+/*
+ * TODO: handle the case that MTL file is forbidden and some HTML error message returned from the server.
+ */
+
 using UnityEngine;
 using System;
 using System.Collections;
@@ -6,9 +10,13 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using System.IO;
 
+public delegate void EventListener( string message );
+
 public class OBJ : MonoBehaviour {
 	
 	public string objPath;
+    public EventListener finishListener;
+    public EventListener failListener;
 	
 	/* OBJ file tags */
 	private const string O 	= "o";
@@ -45,22 +53,44 @@ public class OBJ : MonoBehaviour {
 		buffer = new GeometryBuffer ();
 		StartCoroutine (Load (objPath));
 	}
+    
+    void CallFinishListener(string message) {
+        if (finishListener != null) finishListener(message);
+    }
+    void CallFailListener(string message) {
+        if (failListener != null) failListener(message);
+    }
 	
 	public IEnumerator Load(string path) {
 		basepath = (path.IndexOf("/") == -1) ? "" : path.Substring(0, path.LastIndexOf("/") + 1);
-		
+		Debug.Log("OBJ Load path:<"+path+">");
 		WWW loader = new WWW(path);
 		yield return loader;
+        if (loader.error != null) {
+            Debug.LogError(loader.error);
+            CallFailListener("OBJ file load error:"+loader.error + " path:"+path);
+            yield break;
+        }
 		SetGeometryData(loader.text);
+        if (buffer.vertices.Count == 0) {
+            int copylen = Math.Min(loader.text.Length, 1000);
+            string msg = "OBJ file doesn't contains vertices. path:"+path+" body:"+loader.text.Substring(0,copylen);
+            Debug.LogError(msg);
+            CallFailListener(msg);
+            yield break;
+        }
 		
 		if(hasMaterials) {
-			loader = new WWW(basepath + mtllib);
+            string mtlpath = basepath + mtllib;
+			loader = new WWW(mtlpath);
 			Debug.Log("base path = "+basepath);
-			Debug.Log("MTL path = "+(basepath + mtllib));
+			Debug.Log("MTL path = "+mtlpath);
 			yield return loader;
 			if (loader.error != null) {
 				Debug.LogError(loader.error);
-			}
+                CallFailListener("MTL file load error:"+loader.error + " path:"+mtlpath);
+                yield break;
+            }
 			else {
 				SetMaterialData(loader.text);
 			}
@@ -88,7 +118,8 @@ public class OBJ : MonoBehaviour {
 		}
 		
 		Build();
-
+        
+        CallFinishListener("");
 	}
 	
 	private WWW GetTextureLoader(MaterialData m, string texpath) {
@@ -448,18 +479,14 @@ public class OBJ : MonoBehaviour {
 		
 		GameObject[] ms = new GameObject[buffer.numObjects];
 		
-		if(buffer.numObjects == 1) {
-			gameObject.AddComponent(typeof(MeshFilter));
-			gameObject.AddComponent(typeof(MeshRenderer));
-			ms[0] = gameObject;
-		} else if(buffer.numObjects > 1) {
-			for(int i = 0; i < buffer.numObjects; i++) {
-				GameObject go = new GameObject();
-				go.transform.parent = gameObject.transform;
-				go.AddComponent(typeof(MeshFilter));
-				go.AddComponent(typeof(MeshRenderer));
-				ms[i] = go;
-			}
+		for(int i = 0; i < buffer.numObjects; i++) {
+			GameObject go = new GameObject();
+			go.transform.parent = gameObject.transform;
+            go.transform.localScale = Vector3.one;
+            go.transform.localPosition = Vector3.zero;
+			go.AddComponent(typeof(MeshFilter));
+			go.AddComponent(typeof(MeshRenderer));
+			ms[i] = go;
 		}
 		
 		buffer.PopulateMeshes(ms, materials);

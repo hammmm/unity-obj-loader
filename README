@@ -7,10 +7,14 @@ http://www.everyday3d.com/blog/index.php/2010/05/24/loading-3d-models-runtime-un
 
 Many thanks to the original author, Bartek Drozdz for publishing the code under MIT license.
 
+- Upgraded to work with Unity 5 Shaders, while also supporting Unity 4 users.
+- Supports loading from local file system (file:// prefix url) as well as remotely over WWW.
+- Supports PNG/JPG/TGA textures.
+
 License: MIT
 
 Notes:
  - please put all texture files on the same directory of . obj file.
  - please use use this form of URL for local files. ex) file:///Users/someone/somepath/model.obj
  - Bump map is not correctly working. TODO: convert hight map to normal map, make tangent data.
-
+ - Arbitrary polygons is not supported yet, only triangles. See https://github.com/mtschoen/unity-obj-loader/ for quad support.

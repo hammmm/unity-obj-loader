@@ -53,13 +53,16 @@ public class GeometryBuffer {
 	
 	public void PushObject(string name) {
 		//Debug.Log("Adding new object " + name + ". Current is empty: " + isEmpty);
+		string currentMaterial = current.groups [current.groups.Count - 1].materialName;
+
 		if(isEmpty) objects.Remove(current);
 		
 		ObjectData n = new ObjectData();
 		n.name = name;
 		objects.Add(n);
-		
+
 		GroupData g = new GroupData();
+		g.materialName = currentMaterial;
 		g.name = "default";
 		n.groups.Add(g);
 		
@@ -68,8 +71,11 @@ public class GeometryBuffer {
 	}
 	
 	public void PushGroup(string name) {
+		string currentMaterial = current.groups [current.groups.Count - 1].materialName;
+
 		if(curgr.isEmpty) current.groups.Remove(curgr);
 		GroupData g = new GroupData();
+		g.materialName = currentMaterial;
 		if (name == null) {
 			name = "Unnamed-"+unnamedGroupIndex;
 			unnamedGroupIndex++;
@@ -126,7 +132,7 @@ public class GeometryBuffer {
 	public bool hasNormals { get { return normals.Count > 0; } }
 	
 	public static int MAX_VERTICES_LIMIT_FOR_A_MESH = 64999;
-	
+
 	public void PopulateMeshes(GameObject[] gs, Dictionary<string, Material> mats) {
 		if(gs.Length != numObjects) return; // Should not happen unless obj file is corrupt...
 		Debug.Log("PopulateMeshes GameObjects count:"+gs.Length);
@@ -140,7 +146,7 @@ public class GeometryBuffer {
 			Vector3[] tvertices = new Vector3[od.allFaces.Count];
 			Vector2[] tuvs = new Vector2[od.allFaces.Count];
 			Vector3[] tnormals = new Vector3[od.allFaces.Count];
-		
+
 			int k = 0;
 			foreach(FaceIndices fi in od.allFaces) {
 				if (k >= MAX_VERTICES_LIMIT_FOR_A_MESH) {
@@ -152,18 +158,18 @@ public class GeometryBuffer {
 				if(hasNormals && fi.vn >= 0) tnormals[k] = normals[fi.vn];
 				k++;
 			}
-		
+
 			Mesh m = (gs[i].GetComponent(typeof(MeshFilter)) as MeshFilter).mesh;
 			m.vertices = tvertices;
 			if(hasUVs) m.uv = tuvs;
 			if(objectHasNormals) m.normals = tnormals;
-			
+
 			if(od.groups.Count == 1) {
 				Debug.Log("PopulateMeshes only one group: "+od.groups[0].name);
 				GroupData gd = od.groups[0];
 				string matName = (gd.materialName != null) ? gd.materialName : "default"; // MAYBE: "default" may not enough.
 				if (mats.ContainsKey(matName)) {
-					gs[i].renderer.material = mats[matName];
+					gs[i].GetComponent<Renderer>().material = mats[matName];
 					Debug.Log("PopulateMeshes mat:"+matName+" set.");
 				}
 				else {
@@ -173,7 +179,7 @@ public class GeometryBuffer {
 				for(int j = 0; j < triangles.Length; j++) triangles[j] = j;
 				
 				m.triangles = triangles;
-				
+
 			} else {
 				int gl = od.groups.Count;
 				Material[] materials = new Material[gl];
@@ -198,7 +204,7 @@ public class GeometryBuffer {
 					m.SetTriangles(triangles, j);
 				}
 				
-				gs[i].renderer.materials = materials;
+				gs[i].GetComponent<Renderer>().materials = materials;
 			}
 			if (!objectHasNormals) {
 				m.RecalculateNormals();
@@ -206,30 +212,3 @@ public class GeometryBuffer {
 		}
 	}
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

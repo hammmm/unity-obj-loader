@@ -9,7 +9,12 @@ using System.IO;
 public class OBJ : MonoBehaviour {
 	
 	public string objPath;
-	
+#if UNITY_5
+	public bool useLegacyShaders = false; // compatibility option for previous users of OBJ.cs using Unity5
+#else
+	private bool useLegacyShaders = true;
+#endif
+
 	/* OBJ file tags */
 	private const string O 	= "o";
 	private const string G 	= "g";
@@ -35,7 +40,31 @@ public class OBJ : MonoBehaviour {
 	private const string MAP_KE = "map_Ke"; // Emissive texture
 	private const string MAP_BUMP = "map_bump"; // Bump map texture
 	private const string BUMP = "bump"; // Bump map texture
+
+	/* Material shaders */
+#if UNITY_5
+	private const string DIFFUSE_SHADER = "Standard";
+	private const string SPECULAR_SHADER = "Standard (Specular setup)";
+	private const string BUMPED_DIFFUSE_SHADER = "Standard";
+	private const string BUMPED_SPECULAR_SHADER = "Standard (Specular setup)";
 	
+	private const string LEGACY_DIFFUSE_SHADER = "Legacy Shaders/Diffuse";
+	private const string LEGACY_SPECULAR_SHADER = "Legacy Shaders/Specular";
+	private const string LEGACY_BUMPED_DIFFUSE_SHADER = "Legacy Shaders/Bumped Diffuse";
+	private const string LEGACY_BUMPED_SPECULAR_SHADER = "Legacy Shaders/Bumped Specular";
+#else
+	private const string DIFFUSE_SHADER = "Diffuse";
+	private const string SPECULAR_SHADER = "Specular";
+	private const string BUMPED_DIFFUSE_SHADER = "Bumped Diffuse";
+	private const string BUMPED_SPECULAR_SHADER = "Bumped Specular";
+
+	private const string LEGACY_DIFFUSE_SHADER = DIFFUSE_SHADER;
+	private const string LEGACY_SPECULAR_SHADER = SPECULAR_SHADER;
+	private const string LEGACY_BUMPED_DIFFUSE_SHADER = BUMPED_DIFFUSE_SHADER;
+	private const string LEGACY_BUMPED_SPECULAR_SHADER = BUMPED_SPECULAR_SHADER;
+#endif
+
+
 	private string basepath;
 	private string mtllib;
 	private GeometryBuffer buffer;
@@ -43,65 +72,73 @@ public class OBJ : MonoBehaviour {
 	void Start ()
 	{
 		buffer = new GeometryBuffer ();
+
 		StartCoroutine (Load (objPath));
 	}
 	
 	public IEnumerator Load(string path) {
+		yield return 0; // play nice by not hogging the main thread
+
 		basepath = (path.IndexOf("/") == -1) ? "" : path.Substring(0, path.LastIndexOf("/") + 1);
-		
+
 		WWW loader = new WWW(path);
 		yield return loader;
-		SetGeometryData(loader.text);
+		yield return StartCoroutine(SetGeometryData(loader.text));
 		
 		if(hasMaterials) {
-			loader = new WWW(basepath + mtllib);
 			Debug.Log("base path = "+basepath);
 			Debug.Log("MTL path = "+(basepath + mtllib));
+			string mtlPath = basepath + mtllib;
+			loader = new WWW (mtlPath);
 			yield return loader;
+
 			if (loader.error != null) {
 				Debug.LogError(loader.error);
 			}
 			else {
 				SetMaterialData(loader.text);
 			}
-			
-			foreach(MaterialData m in materialData) {
-				if(m.diffuseTexPath != null) {
-					WWW texloader = GetTextureLoader(m, m.diffuseTexPath);
-					yield return texloader;
-					if (texloader.error != null) {
-						Debug.LogError(texloader.error);
-					} else {
-						m.diffuseTex = texloader.texture;
+
+			if (materialData != null) {
+				foreach(MaterialData m in materialData) {
+					if(m.diffuseTexPath != null) {
+						string texpath = basepath + m.diffuseTexPath;
+						loader = new WWW(texpath);
+						yield return loader;
+
+						if (loader.error != null) {
+							Debug.LogError(loader.error);
+						} else {
+							m.diffuseTex = GetTexture(loader);
+						}
 					}
-				}
-				if(m.bumpTexPath != null) {
-					WWW texloader = GetTextureLoader(m, m.bumpTexPath);
-					yield return texloader;
-					if (texloader.error != null) {
-						Debug.LogError(texloader.error);
-					} else {
-						m.bumpTex = texloader.texture;
+
+					if(m.bumpTexPath != null) {
+						string texpath = basepath + m.bumpTexPath;
+						loader = new WWW(texpath);
+						yield return loader;
+
+						if (loader.error != null) {
+							Debug.LogError(loader.error);
+						} else {
+							m.bumpTex = GetTexture(loader);
+						}
 					}
 				}
 			}
 		}
-		
-		Build();
 
+		Build();
 	}
-	
-	private WWW GetTextureLoader(MaterialData m, string texpath) {
-		char[] separators = {'/', '\\'};
-		string[] components = texpath.Split(separators);
-		string filename = components[components.Length-1];
-		string ext = Path.GetExtension(filename).ToLower();
-		if (ext != ".png" && ext != ".jpg") {
+
+	private Texture2D GetTexture(WWW loader) {
+		string ext = Path.GetExtension(loader.url).ToLower();
+		if (ext != ".png" && ext != ".jpg" && ext != ".tga") {
 			Debug.LogWarning("maybe unsupported texture format:"+ext);
 		}
-		WWW texloader = new WWW(basepath + filename);
-		Debug.Log("texture path for material("+m.name+") = "+(basepath + filename));
-		return texloader;
+
+		return (ext == ".tga" ? TGALoader.LoadTGA (new MemoryStream(loader.bytes)) : loader.texture);
+		// refactor this method to add support for more formats
 	}
 	
 	private void GetFaceIndicesByOneFaceLine(FaceIndices[] faces, string[] p, bool isFaceIndexPlus) {
@@ -155,18 +192,22 @@ public class OBJ : MonoBehaviour {
 		}
 	}
 
-	private void SetGeometryData(string data) {
+	private IEnumerator SetGeometryData(string data) {
+		yield return 0; // play nice by not hogging the main thread
+
 		string[] lines = data.Split("\n".ToCharArray());
-		Regex regexWhitespaces = new Regex(@"\s+");
+
 		bool isFirstInGroup = true;
 		bool isFaceIndexPlus = true;
+
 		for(int i = 0; i < lines.Length; i++) {
 			string l = lines[i].Trim();
-			
-			if(l.IndexOf("#") != -1) { // comment line
+
+			if(l.Length > 0 && l[0] == '#') { // comment line
 				continue;
 			}
-			string[] p = regexWhitespaces.Split(l);
+			string[] p = l.Replace("  ", " ").Split(' ');
+
 			switch(p[0]) {
 				case O:
 					buffer.PushObject(p[1].Trim());
@@ -221,8 +262,8 @@ public class OBJ : MonoBehaviour {
 					buffer.PushMaterialName(p[1].Trim());
 					break;
 			}
+			if (i % 7000 == 0) yield return 0; // play nice with main thread while parsing large objs
 		}
-		
 		// buffer.Trace();
 	}
 
@@ -231,7 +272,7 @@ public class OBJ : MonoBehaviour {
 			return float.Parse(v);
 		}
 		catch(Exception e) {
-			print(e);
+			Debug.LogError("Error parsing: " + v + ": " + e);
 			return 0;
 		}
 	}
@@ -241,7 +282,7 @@ public class OBJ : MonoBehaviour {
 			return int.Parse(v);
 		}
 		catch(Exception e) {
-			print(e);
+			Debug.LogError(e);
 			return 0;
 		}
 	}
@@ -274,7 +315,7 @@ public class OBJ : MonoBehaviour {
 		materialData = new List<MaterialData>();
 		MaterialData current = new MaterialData();
 		Regex regexWhitespaces = new Regex(@"\s+");
-		
+
 		for(int i = 0; i < lines.Length; i++) {
 			string l = lines[i].Trim();
 			
@@ -318,19 +359,28 @@ public class OBJ : MonoBehaviour {
 					Debug.Log("this line was not processed :" +l );
 					break;
 			}
-		}	
+		}
 	}
 	
 	private Material GetMaterial(MaterialData md) {
 		Material m;
+		string shaderName;
 		
 		if(md.illumType == 2) {
-			string shaderName = (md.bumpTex != null)? "Bumped Specular" : "Specular";
+			if (useLegacyShaders) {
+				shaderName = (md.bumpTex != null)? LEGACY_BUMPED_SPECULAR_SHADER : LEGACY_SPECULAR_SHADER;
+			} else {
+				shaderName = (md.bumpTex != null)? BUMPED_SPECULAR_SHADER : SPECULAR_SHADER;
+			}
 			m =  new Material(Shader.Find(shaderName));
 			m.SetColor("_SpecColor", md.specular);
 			m.SetFloat("_Shininess", md.shininess);
 		} else {
-			string shaderName = (md.bumpTex != null)? "Bumped Diffuse" : "Diffuse";
+			if (useLegacyShaders) {
+				shaderName = (md.bumpTex != null)? LEGACY_BUMPED_DIFFUSE_SHADER : LEGACY_DIFFUSE_SHADER;
+			} else {
+				shaderName = (md.bumpTex != null)? BUMPED_DIFFUSE_SHADER : DIFFUSE_SHADER;
+			}
 			m =  new Material(Shader.Find(shaderName));
 		}
 
